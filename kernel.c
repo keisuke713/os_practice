@@ -35,6 +35,9 @@ void kernel_main(void) {
     printf(s);
     printf("1 + 2 = %d, %x \n", 1 + 2, 16);
 
+    PANIC("booted");
+    printf("unreachable here");
+
     for (;;) {
         __asm__ __volatile__("wfi");
     }

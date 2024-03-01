@@ -59,3 +59,14 @@ struct trap_frame {
         printf("PANIC: %s:%d "fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__); \
         while(1) {}                                                         \
     } while (0);
+
+#define PROCS_MAX 8      // 最大プロセス数
+#define PROCS_UNUSED 0   // 未使用のプロセス管理構造体
+#define PROCS_RUNNABLE 1 // 実行可能なプロセス
+
+typedef struct {
+    int pid;             // プロセスID
+    int state;           // プロセスの状態
+    vaddr_t sp;         // コンテキストスイッチ時のスタックポインタ
+    uint8_t stack[8192]; // カーネルスタック
+} process;

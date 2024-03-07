@@ -102,8 +102,20 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp, uint32_t *next_sp)
 }
 
 extern char __kernel_base[];
+extern char _binary_shell_bin_start[], _binary_shell_bin_size[];
 
-process *create_process(uint32_t pc) {
+__attribute__((naked)) void user_entry(void) {
+    __asm__ __volatile__(
+        "csrw sepc, %[sepc]\n"
+        "csrw sstatus, %[sstatus]\n"
+        "sret\n"
+        :
+        : [sepc] "r" (USER_BASE),
+          [sstatus] "r" (SSTATUS_SPIE)
+    );
+}
+
+process *create_process(const void *image, size_t image_size) {
     // 空いているプロセス管理構造体を探す
     process *proc = NULL;
     int i;
@@ -131,14 +143,20 @@ process *create_process(uint32_t pc) {
     *--sp = 0;             // s2
     *--sp = 0;             // s1
     *--sp = 0;             // s0
-    *--sp = (uint32_t) pc; // ra
-    printf("original sp: %x, sp: %x, pc: %x\n", (uint32_t *) &proc->stack[sizeof(proc->stack)], sp, pc);
+    *--sp = (uint32_t) user_entry; // ra
 
     uint32_t *page_table = (uint32_t *) alloc_pages(1);
 
     // カーネルのページをマッピングする
     for (paddr_t paddr = (paddr_t) __kernel_base; paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE)
         map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+
+    // ユーザーのページをマッピングする
+    for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
+        paddr_t page = alloc_pages(1);
+        memcpy((void *) page, image + off, PAGE_SIZE);
+        map_page(page_table, USER_BASE + off, page, PAGE_U | PAGE_R | PAGE_W | PAGE_X);
+    }
 
     proc->pid = i + 1;
     proc->state = PROCS_RUNNABLE;
@@ -222,22 +240,11 @@ void kernel_main(void) {
     
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
 
-    const char *s = "\n\nHello World!\n";
-    printf(s);
-    printf("1 + 2 = %d, %x \n", 1 + 2, 16);
-
-    paddr_t paddr0 = alloc_pages(2);
-    paddr_t paddr1 = alloc_pages(1);
-    printf("paddr=%x, paddr=%x \n", paddr0, paddr1);
-
-    idle_proc = create_process((uint32_t) NULL);
+    idle_proc = create_process(NULL, 0);
     idle_proc->pid = -1;
     current_proc = idle_proc;
 
-    // process_test
-    proc_a = create_process((uint32_t) proc_a_entry);
-    proc_b = create_process((uint32_t) proc_b_entry);
-    // proc_a_entry();
+    create_process(_binary_shell_bin_start, (size_t) _binary_shell_bin_size);
     yield();
     PANIC("switched to idle process");
 
